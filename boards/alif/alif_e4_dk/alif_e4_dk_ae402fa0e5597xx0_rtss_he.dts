@@ -36,12 +36,17 @@
 			label = "LED1_G";
 		};
 	};
+
+	/*
+	 * Note: For Ensemble Gen2 SoCs, the GPIO debounce must be enabled
+	 * when using GPIO interrupts to ensure stable edge detection.
+	 */
 	buttons {
 		compatible = "gpio-keys";
 
 		button0: button_0 {
-			gpios = < &lpgpio 4 0 >;
-			label = "SW0";
+			gpios = < &lpgpio 4 DW_GPIO_DEBOUNCE >;
+			label = "SW2";
 		};
 	};
 };
