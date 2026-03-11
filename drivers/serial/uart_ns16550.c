@@ -309,7 +309,7 @@ BUILD_ASSERT(IS_ENABLED(CONFIG_PCIE), "NS16550(s) in DT need CONFIG_PCIE");
 #if defined(CONFIG_UART_ASYNC_API)
 struct uart_ns16550_rx_dma_params {
 	const struct device *dma_dev;
-	uint8_t dma_channel;
+	uint32_t dma_channel;
 	bool async_enabled;
 	struct dma_config dma_cfg;
 	struct dma_block_config active_dma_block;
@@ -323,7 +323,7 @@ struct uart_ns16550_rx_dma_params {
 
 struct uart_ns16550_tx_dma_params {
 	const struct device *dma_dev;
-	uint8_t dma_channel;
+	uint32_t dma_channel;
 	struct dma_config dma_cfg;
 	struct dma_block_config active_dma_block;
 	const uint8_t *buf;
