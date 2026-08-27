@@ -1,0 +1,24 @@
+/*
+ * Copyright (c) 2026 Alif Semiconductor
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Spark turbo clock rates changes. Applied only with: west build -S spark-turbo
+ * HE PLL and ACLK at 240 MHz,
+ * HCLK at 120 MHz(PLL/2), PCLK at 60 MHz(PLL/4). Default PLL is 160 MHz.
+ */
+
+&pll_clk1 {
+	clock-frequency = <240000000>;
+};
+
+&syst_aclk {
+	clock-frequency = <240000000>;
+};
+
+&syst_hclk {
+	clock-frequency = <120000000>;
+};
+
+&syst_core {
+	clock-frequency = <240000000>;
+};

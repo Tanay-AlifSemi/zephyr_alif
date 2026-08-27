@@ -9,6 +9,17 @@ config RTSS_HE
 	help
 	  Enable RTSS_HE core.
 
+config ALIF_SPARK_TURBO_MODE
+	bool "Spark turbo (HE core 240 MHz)"
+	depends on SOC_SERIES_B1
+	help
+	  Enable spark turbo mode: HE PLL and ACLK at 240 MHz,
+	  HCLK at 120 MHz(PLL/2), PCLK at 60 MHz(PLL/4). Default PLL is 160 MHz.
+
+	  Use the spark-turbo snippet so DTS clock-frequency nodes changes are added:
+	  west build -S spark-turbo
+
+
 config HAS_ALIF_BLE_802154_LINK_LAYER
 	bool
 	help

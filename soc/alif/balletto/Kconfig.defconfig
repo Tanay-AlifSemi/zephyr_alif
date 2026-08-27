@@ -4,6 +4,9 @@
 
 if SOC_FAMILY_BALLETTO
 
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	default 240000000 if ALIF_SPARK_TURBO_MODE
+
 # Disable null pointer exception detection by default for Balletto B1.
 # The Alif BLE ROM patcher dereferences address 0x00000000 (ITCM base)
 # when no patch is present (__ble_patch_info_start weak symbol resolves to NULL).
