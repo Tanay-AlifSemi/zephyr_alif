@@ -209,7 +209,9 @@ static int soc_init(void)
 		/* LP-SPI0 Mode Selection */
 		/* To Slave Set Bit : 15  */
 		/* To Master Clear Bit : 15 */
-		sys_clear_bits(M55HE_CFG_HE_CLK_ENA, BIT(15));
+
+		//sys_clear_bits(M55HE_CFG_HE_CLK_ENA, BIT(15)); //todo
+		sys_set_bits(M55HE_CFG_HE_CLK_ENA, BIT(15)); //todo
 
 		/*LP-SPI0 Flex GPIO*/
 		sys_write32(0x1, VBAT_GPIO_CTRL_EN);

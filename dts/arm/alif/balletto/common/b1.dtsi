@@ -912,13 +912,16 @@
 		pinctrl-0 = < &pinctrl_lpspi0 >;
 		pinctrl-1 = < &pinctrl_lpspi0_sleep >;
 		pinctrl-names = "default", "sleep";
-		reg = <0x43000000 0x1000>;
+		//reg = <0x43000000 0x1000>;
+		reg = <0x43004000 0x1000>;
 		interrupt-parent = <&nvic>;
 		interrupts = <46 ALIF_DEFAULT_IRQ_PRIORITY>;
 		clocks = <&clockctrl ALIF_LPSPI_CLK>;
 		fifo-depth = <16>;
 		max-xfer-size = <32>;
 		rx-delay = <4>;
+		//rx-delay = <8>;
+		//rx-delay = <0>;
 		status = "disabled";
 	};
 
