@@ -385,7 +385,14 @@ static int spi_dw_dma_wait_completion(const struct device *dev,
 		SPI_DW_DMA_FULL_DUPLEX : 1;
 
 	for (uint8_t i = 0; i < expected_completions; i++) {
-		k_sem_take(&spi->dma_sem, K_FOREVER);
+		/* Slave must stay armed across the sample's 1 s master sleep.
+		 * Master uses a short timeout so a missing slave cannot lock AHB.
+		 */
+		k_timeout_t to = spi_dw_is_slave(spi) ? K_SECONDS(10) : K_MSEC(500);
+
+		if (k_sem_take(&spi->dma_sem, to) != 0) {
+			return -ETIMEDOUT;
+		}
 
 		/* Check for IRQ error first, then DMA error */
 		if (spi->ctx.sync_status < 0) {
@@ -671,7 +678,7 @@ static int spi_dw_configure(const struct device *dev,
 	}
 
 	if (spi_dw_is_slave(spi)) {
-		LOG_DBG("Installed slave config %p:"
+		LOG_INF("Installed slave config %p:"
 			    " ws/dfs %u/%u, mode %u/%u/%u",
 			    config,
 			    SPI_WORD_SIZE_GET(config->operation), spi->dfs,
@@ -682,10 +689,10 @@ static int spi_dw_configure(const struct device *dev,
 			    (SPI_MODE_GET(config->operation) &
 			     SPI_MODE_LOOP) ? 1 : 0);
 	} else {
-		LOG_DBG("Installed master config %p: freq %uHz (div = %u),"
+		LOG_INF("Installed master config %p: freq %uHz (div = %d),"
 			    " ws/dfs %u/%u, mode %u/%u/%u, slave %u",
 			    config, config->frequency,
-			    SPI_DW_CLK_DIVIDER(info->clock_frequency,
+			    SPI_DW_CLK_DIVIDER(clk_freq,
 					       config->frequency),
 			    SPI_WORD_SIZE_GET(config->operation), spi->dfs,
 			    (SPI_MODE_GET(config->operation) &
