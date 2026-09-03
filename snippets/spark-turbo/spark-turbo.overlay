@@ -22,3 +22,17 @@
 &syst_core {
 	clock-frequency = <240000000>;
 };
+
+/*
+ * OSPI SSI is ACLK. HAL writes BAUDR = clock-frequency / bus-speed.
+ * TRM: BAUDR is always even (SCKDV*2, bit 0 stuck at 0).
+ *   F_SCLK = F_OSPI_CLK / BAUDR,  BAUDR = 2,4,...,65534
+ *
+ * 80 MHz is impossible at 240 MHz: 240/80 = 3 (odd) → HW stores 2 → 120 MHz.
+ * 40 MHz is even on both SSI clocks: 160/4 = 40, 240/6 = 40.
+ */
+&ospi0 {
+	clock-frequency = <240000000>;
+	bus-speed = <40000000>;
+	baud2-delay = <2>;
+};

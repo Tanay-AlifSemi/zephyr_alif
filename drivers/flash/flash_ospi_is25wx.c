@@ -1100,6 +1100,15 @@ static int flash_is25wx_ospi_init(const struct device *dev)
 		ret = err_map_alif_hal_to_zephyr(ret);
 		return ret;
 	}
+	{
+		uint32_t div = init_config.bus_speed ?
+			(init_config.core_clk / init_config.bus_speed) : 0U;
+		uint32_t baudr = (div < 2U) ? 2U : (div & ~1U);
+
+		LOG_INF("core_clk=%u bus_speed=%u write=%u HW BAUDR=%u SCK=%u",
+			init_config.core_clk, init_config.bus_speed, div, baudr,
+			baudr ? (init_config.core_clk / baudr) : 0U);
+	}
 	/* Initialize Configuration */
 	ret = alif_hal_ospi_prepare_transfer(dev_data->ospi_handle, &dev_data->trans_conf);
 	if (ret != 0) {
