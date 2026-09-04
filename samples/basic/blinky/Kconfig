@@ -1,0 +1,15 @@
+# Copyright (c) 2026 Alif Semiconductor
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "Blinky"
+
+source "Kconfig.zephyr"
+
+config ALIF_UART_ECHO_BAUD
+	int "UART2 echo baud for PC TX/RX script (B1)"
+	default 115200
+	help
+	  After the clock / LA checks, UART2 becomes a wire echo at this
+	  baud so a PC script can TX and verify RX. Default 115200 matches
+	  the USB-COM. 2.5M / 3.75M work on the SoC (P8 loopback) but the
+	  USB-UART chip does not see ECHO at those rates.

@@ -5,3 +5,6 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(blinky)
 
 target_sources(app PRIVATE src/main.c)
+if(CONFIG_SOC_SERIES_B1)
+  target_sources(app PRIVATE src/alif_uart_check.c)
+endif()

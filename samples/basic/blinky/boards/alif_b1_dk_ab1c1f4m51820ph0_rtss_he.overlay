@@ -1,0 +1,6 @@
+/*
+ * UART0 TX-only DUT for LA (P8_1). Console stays UART2 @ 115200 (P5_3).
+ */
+&uart0 {
+	status = "okay";
+};
