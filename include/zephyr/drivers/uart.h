@@ -41,6 +41,7 @@ enum uart_line_ctrl {
 	UART_LINE_CTRL_BRK = BIT(5),       /**< Break control (BRK) */
 	UART_LINE_CTRL_AFCE = BIT(6),      /**< Autoflow enable */
 	UART_LINE_MODEM_CTS = BIT(7),      /**< Modem Status  (CTS) */
+	UART_LINE_CTRL_LOOPBACK = BIT(8),  /**< NS16550 MCR loopback */
 };
 
 /**

@@ -1601,6 +1601,17 @@ static int uart_ns16550_line_ctrl_set(const struct device *dev,
 		ns16550_outbyte(dev_cfg, MDC(dev), mdc);
 		k_spin_unlock(&data->lock, key);
 		return 0;
+	case UART_LINE_CTRL_LOOPBACK:
+		key = k_spin_lock(&data->lock);
+		mdc = ns16550_inbyte(dev_cfg, MDC(dev));
+		if (val) {
+			mdc |= MCR_LOOP;
+		} else {
+			mdc &= ~(MCR_LOOP);
+		}
+		ns16550_outbyte(dev_cfg, MDC(dev), mdc);
+		k_spin_unlock(&data->lock, key);
+		return 0;
 	case UART_LINE_CTRL_BRK:
 		key = k_spin_lock(&data->lock);
 
@@ -1653,6 +1664,12 @@ static int uart_ns16550_line_ctrl_get(const struct device *dev,
 		} else {
 			*val = 0;
 		}
+		k_spin_unlock(&data->lock, key);
+		return 0;
+	case UART_LINE_CTRL_LOOPBACK:
+		key = k_spin_lock(&data->lock);
+		mdc = ns16550_inbyte(dev_cfg, MDC(dev));
+		*val = (mdc & MCR_LOOP) ? 1U : 0U;
 		k_spin_unlock(&data->lock, key);
 		return 0;
 	}
