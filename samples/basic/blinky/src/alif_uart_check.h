@@ -15,6 +15,7 @@ void alif_uart_baud_sweep(void);
 void alif_uart_pin_la_burst(void);
 void alif_uart_ext_loopback(void);
 void alif_uart_throughput(void);
+void alif_lpuart_all(void);
 void alif_uart_echo_wire(void);
 #else
 static inline void alif_uart_check_init(void) {}
@@ -24,6 +25,7 @@ static inline void alif_uart_baud_sweep(void) {}
 static inline void alif_uart_pin_la_burst(void) {}
 static inline void alif_uart_ext_loopback(void) {}
 static inline void alif_uart_throughput(void) {}
+static inline void alif_lpuart_all(void) {}
 static inline void alif_uart_echo_wire(void) {}
 #endif
 

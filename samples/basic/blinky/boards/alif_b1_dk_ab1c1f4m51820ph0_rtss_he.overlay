@@ -1,6 +1,36 @@
+#include <dt-bindings/pinctrl/balletto-pinctrl.h>
+
 /*
- * UART0 TX-only DUT for LA (P8_1). Console stays UART2 @ 115200 (P5_3).
+ * UART0 DUT: P8_1 TX / P8_0 RX. Console stays UART2 @ 115200 (P5_3).
+ *
+ * LPUART working pair (same mux group B): P7_1 TX_B + P7_0 RX_B.
+ * Do not use board-default P2_0 RX_A — see lpuart_p2_0_hw_report.md.
  */
+&pinctrl {
+	pinctrl_lpuart_p7: pinctrl_lpuart_p7 {
+		group0 {
+			pinmux = <PIN_P7_0__LPUART_RX_B>,
+				 <PIN_P7_1__LPUART_TX_B>;
+			read-enable = <0x1>;
+		};
+	};
+
+	pinctrl_lpuart_p7_sleep: pinctrl_lpuart_p7_sleep {
+		group0 {
+			pinmux = <PIN_P7_0__GPIO>, <PIN_P7_1__GPIO>;
+			read-enable = <0x1>;
+			driver-state-control = <2>;
+		};
+	};
+};
+
 &uart0 {
 	status = "okay";
+};
+
+&lpuart {
+	status = "okay";
+	pinctrl-0 = <&pinctrl_lpuart_p7>;
+	pinctrl-1 = <&pinctrl_lpuart_p7_sleep>;
+	pinctrl-names = "default", "sleep";
 };

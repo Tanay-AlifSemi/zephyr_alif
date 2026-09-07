@@ -41,6 +41,7 @@ int main(void)
 	alif_uart_pin_la_burst();
 	alif_uart_ext_loopback();
 	alif_uart_throughput();
+	alif_lpuart_all();
 	/* USB-COM script: 115200 PASS only. 2.5M/3.75M never see ECHO.
 	 * High baud is P8_1↔P8_0. Leave uart_echo_test.py unused.
 	 * alif_uart_echo_wire();

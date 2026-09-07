@@ -42,6 +42,13 @@
 #define DUT_OK   0
 #endif
 
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(lpuart), okay)
+#define LPU_NODE DT_NODELABEL(lpuart)
+#define LPU_OK   1
+#else
+#define LPU_OK   0
+#endif
+
 #define SWEEP_PAYLOAD   64
 #define PIN_BURST_BYTES 32
 #define PIN_BURST_REPS  3
@@ -75,12 +82,12 @@ struct sweep_row {
 	int err;
 };
 
-static void formula_for_baud(uint32_t baud, uint32_t *dl, uint32_t *dlf,
-			     uint32_t *actual, int32_t *ppm)
+static void formula_for_baud(uint32_t sclk, uint32_t baud, uint32_t *dl,
+			     uint32_t *dlf, uint32_t *actual, int32_t *ppm)
 {
-	*dl = (baud != 0U && chk.sclk != 0U) ? (chk.sclk / (baud * 16U)) : 0U;
-	*dlf = (baud != 0U && chk.sclk != 0U) ?
-	       ((chk.sclk + (baud >> 1)) / baud) & 0xFU : 0U;
+	*dl = (baud != 0U && sclk != 0U) ? (sclk / (baud * 16U)) : 0U;
+	*dlf = (baud != 0U && sclk != 0U) ?
+	       ((sclk + (baud >> 1)) / baud) & 0xFU : 0U;
 
 	if (*dl == 0U || (16U * (*dl) + *dlf) == 0U) {
 		*actual = 0U;
@@ -88,7 +95,7 @@ static void formula_for_baud(uint32_t baud, uint32_t *dl, uint32_t *dlf,
 		return;
 	}
 
-	*actual = chk.sclk / (16U * (*dl) + *dlf);
+	*actual = sclk / (16U * (*dl) + *dlf);
 	*ppm = ((int32_t)*actual - (int32_t)baud) * 1000000 / (int32_t)baud;
 }
 
@@ -123,7 +130,7 @@ void alif_uart_check_init(void)
 		chk.sclk = 0;
 	}
 
-	formula_for_baud(chk.baud_req, &chk.exp_dl, &chk.exp_dlf,
+	formula_for_baud(chk.sclk, chk.baud_req, &chk.exp_dl, &chk.exp_dlf,
 			 &chk.baud_actual, &ppm);
 
 	if (device_is_ready(console) && uart_config_get(console, &cfg) == 0) {
@@ -175,20 +182,20 @@ static void print_sweep_table(const struct sweep_row *rows, size_t n,
 {
 	printk("\r\n");
 	printk("+----------+-----+-----+----------+--------+------------------+\r\n");
-	printk("|     baud |  DL | DLF |   actual |    ppm | result           |\r\n");
+	printk("|     baud |    DL | DLF |   actual |    ppm | result           |\r\n");
 	printk("+----------+-----+-----+----------+--------+------------------+\r\n");
 
 	for (size_t i = 0; i < n; i++) {
 		const struct sweep_row *r = &rows[i];
 
 		if (r->status == SWEEP_SKIP) {
-			printk("| %8u |   - |   - |        - |      - | SKIP (DL=0)     |\r\n",
+			printk("| %8u |     - |   - |        - |      - | SKIP (DL=0)     |\r\n",
 			       r->baud);
 		} else if (r->status == SWEEP_PASS) {
-			printk("| %8u | %3u | %3u | %8u | %6d | PASS             |\r\n",
+			printk("| %8u | %5u | %3u | %8u | %6d | PASS             |\r\n",
 			       r->baud, r->dl, r->dlf, r->actual, r->ppm);
 		} else {
-			printk("| %8u | %3u | %3u | %8u | %6d | FAIL (%d)         |\r\n",
+			printk("| %8u | %5u | %3u | %8u | %6d | FAIL (%d)         |\r\n",
 			       r->baud, r->dl, r->dlf, r->actual, r->ppm, r->err);
 		}
 	}
@@ -202,7 +209,7 @@ static void print_sweep_table(const struct sweep_row *rows, size_t n,
 	printk("================================================\r\n\r\n");
 }
 
-#if DUT_OK
+#if DUT_OK || LPU_OK
 static void dut_rx_drain(const struct device *dev)
 {
 	unsigned char c;
@@ -256,6 +263,7 @@ static struct {
 	size_t n;
 	volatile size_t tx_i;
 	volatile size_t rx_i;
+	volatile uint32_t rx_empty;
 } irq_xf;
 
 static void dut_irq_cb(const struct device *dev, void *user)
@@ -267,9 +275,10 @@ static void dut_irq_cb(const struct device *dev, void *user)
 	}
 
 	if (uart_irq_tx_ready(dev) && irq_xf.tx_i < irq_xf.n) {
-		int got = uart_fifo_fill(dev, &irq_xf.tx[irq_xf.tx_i],
-					 (int)(irq_xf.n - irq_xf.tx_i));
+		int got;
 
+		got = uart_fifo_fill(dev, &irq_xf.tx[irq_xf.tx_i],
+				     (int)(irq_xf.n - irq_xf.tx_i));
 		if (got > 0) {
 			irq_xf.tx_i += (size_t)got;
 		}
@@ -279,11 +288,24 @@ static void dut_irq_cb(const struct device *dev, void *user)
 	}
 
 	if (uart_irq_rx_ready(dev) && irq_xf.rx_i < irq_xf.n) {
-		int got = uart_fifo_read(dev, &irq_xf.rx[irq_xf.rx_i],
-					 (int)(irq_xf.n - irq_xf.rx_i));
+		int got;
 
+		got = uart_fifo_read(dev, &irq_xf.rx[irq_xf.rx_i],
+				     (int)(irq_xf.n - irq_xf.rx_i));
 		if (got > 0) {
 			irq_xf.rx_i += (size_t)got;
+			irq_xf.rx_empty = 0;
+		} else {
+			irq_xf.rx_empty++;
+			/* Analog/noise on RX (e.g. P2_0 LPUART_RX_A): IIR
+			 * reports RXRDY/CTI but LSR.DR is 0, so RBR is never
+			 * read and the IRQ never clears. Drop IER so the
+			 * thread can time out instead of spinning in ISR.
+			 */
+			if (irq_xf.rx_empty >= 8U) {
+				uart_irq_rx_disable(dev);
+				uart_irq_tx_disable(dev);
+			}
 		}
 		if (irq_xf.rx_i >= irq_xf.n) {
 			uart_irq_rx_disable(dev);
@@ -305,6 +327,7 @@ static int dut_irq_xfer(const struct device *dev, const uint8_t *tx,
 	irq_xf.n = n;
 	irq_xf.tx_i = 0;
 	irq_xf.rx_i = 0;
+	irq_xf.rx_empty = 0;
 	k_sem_reset(&dut_irq_sem);
 
 	ret = uart_irq_callback_user_data_set(dev, dut_irq_cb, NULL);
@@ -344,11 +367,11 @@ static int dut_pattern_xfer(const struct device *dev)
 	return dut_poll_xfer(dev, tx, rx, SWEEP_PAYLOAD);
 }
 
-static void fill_sweep_row(struct sweep_row *r, uint32_t baud)
+static void fill_sweep_row(struct sweep_row *r, uint32_t baud, uint32_t sclk)
 {
 	memset(r, 0, sizeof(*r));
 	r->baud = baud;
-	formula_for_baud(baud, &r->dl, &r->dlf, &r->actual, &r->ppm);
+	formula_for_baud(sclk, baud, &r->dl, &r->dlf, &r->actual, &r->ppm);
 	if (r->dl == 0U) {
 		r->status = SWEEP_SKIP;
 	}
@@ -359,6 +382,41 @@ static const uint32_t sweep_bauds[] = {
 	1500000, 2000000, 2500000,
 	3000000, 3750000, 4000000,
 };
+
+/* LPUART SCLK = HE (160/240 MHz) → max SCLK/16 = 10 / 15 Mbps. */
+static const uint32_t lpu_sweep_bauds[] = {
+	9600, 115200, 230400, 460800, 921600,
+	1500000, 2000000, 2500000,
+	3000000, 3750000, 4000000,
+	5000000, 10000000, 15000000,
+};
+
+static const uint32_t lpu_la_bauds[] = {
+	115200, 2500000, 3750000, 10000000, 15000000,
+};
+static const uint32_t lpu_tp_bauds[] = {
+	115200, 2500000, 3750000, 10000000, 15000000,
+};
+
+#define LPU_LA_BYTES 4
+#define LPU_LA_REPS  1
+
+#if LPU_OK
+static uint32_t lpuart_sclk(void)
+{
+	const struct device *clkdev =
+		DEVICE_DT_GET(DT_CLOCKS_CTLR(LPU_NODE));
+	clock_control_subsys_t subsys =
+		(clock_control_subsys_t)DT_CLOCKS_CELL(LPU_NODE, clkid);
+	uint32_t rate = 0;
+
+	if (device_is_ready(clkdev)) {
+		(void)clock_control_on(clkdev, subsys);
+		(void)clock_control_get_rate(clkdev, subsys, &rate);
+	}
+	return rate;
+}
+#endif
 #endif
 
 void alif_uart_baud_sweep(void)
@@ -384,7 +442,7 @@ void alif_uart_baud_sweep(void)
 		struct sweep_row *r = &rows[i];
 		int ret;
 
-		fill_sweep_row(r, sweep_bauds[i]);
+		fill_sweep_row(r, sweep_bauds[i], chk.sclk);
 		if (r->status == SWEEP_SKIP) {
 			continue;
 		}
@@ -448,7 +506,7 @@ void alif_uart_pin_la_burst(void)
 		uint32_t dl, dlf, actual;
 		int32_t ppm;
 
-		formula_for_baud(bauds[i], &dl, &dlf, &actual, &ppm);
+		formula_for_baud(chk.sclk, bauds[i], &dl, &dlf, &actual, &ppm);
 		if (dl == 0U) {
 			printk(" SKIP baud: %u (DL=0)\r\n", bauds[i]);
 			continue;
@@ -509,7 +567,7 @@ void alif_uart_ext_loopback(void)
 		struct sweep_row *r = &rows[i];
 		int ret;
 
-		fill_sweep_row(r, sweep_bauds[i]);
+		fill_sweep_row(r, sweep_bauds[i], chk.sclk);
 		if (r->status == SWEEP_SKIP) {
 			continue;
 		}
@@ -580,7 +638,7 @@ void alif_uart_throughput(void)
 		uint32_t scored = 0;
 		int err = 0;
 
-		formula_for_baud(baud, &dl, &dlf, &actual, &ppm);
+		formula_for_baud(chk.sclk, baud, &dl, &dlf, &actual, &ppm);
 		if (dl == 0U) {
 			printk("| %8u |        - | SKIP   |          - |        - |      - |        - |\r\n",
 			       baud);
@@ -644,6 +702,229 @@ void alif_uart_throughput(void)
 	(void)dut_set_baud(dut, 115200);
 	printk("+----------+----------+--------+------------+----------+--------+----------+\r\n");
 	printk("IRQ + FIFO path (same APIs as alif/tests/drivers/uart).\r\n");
+	printk("================================================\r\n\r\n");
+#endif
+}
+
+void alif_lpuart_all(void)
+{
+#if !LPU_OK
+	printk("LPUART not enabled — skip (add &lpuart { status = \"okay\"; })\r\n");
+#else
+	const struct device *dut = DEVICE_DT_GET(LPU_NODE);
+	uint32_t sclk = lpuart_sclk();
+	uint32_t max_hw = sclk / 16U;
+	uint32_t hz = sys_clock_hw_cycles_per_sec();
+	struct sweep_row rows[ARRAY_SIZE(lpu_sweep_bauds)];
+	uint32_t max_pass = 0;
+	static uint8_t tx[BENCH_BYTES];
+	static uint8_t rx[BENCH_BYTES];
+
+	if (!device_is_ready(dut)) {
+		printk("LPUART not ready — skip\r\n");
+		return;
+	}
+
+	printk("======== LPUART check (ns16550, SCLK=HE) ========\r\n");
+	printk("HE / SysTick : %u Hz%s\r\n",
+	       CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC,
+	       IS_ENABLED(CONFIG_ALIF_SPARK_TURBO_MODE) ?
+		       "  [turbo 240]" : "  [normal 160]");
+	printk("LPUART       : %s @ 0x43008000\r\n", DEVICE_DT_NAME(LPU_NODE));
+	printk("SCLK (HE)    : %u Hz  (not PCLK)\r\n", sclk);
+	printk("theor max    : %u baud (SCLK/16)\r\n", max_hw);
+	printk("Pins         : P7_1 TX_B, P7_0 RX_B  (same group B)\r\n");
+	printk("Console stays UART2 P5_3 @ 115200.\r\n");
+	printk("================================================\r\n\r\n");
+
+	printk("======== LPUART baud sweep (driver MCR loopback) ========\r\n");
+	for (size_t i = 0; i < ARRAY_SIZE(lpu_sweep_bauds); i++) {
+		struct sweep_row *r = &rows[i];
+		int ret;
+
+		fill_sweep_row(r, lpu_sweep_bauds[i], sclk);
+		if (r->status == SWEEP_SKIP) {
+			continue;
+		}
+		ret = dut_set_baud(dut, r->baud);
+		if (ret != 0) {
+			r->err = ret;
+			r->status = SWEEP_FAIL;
+			continue;
+		}
+		ret = uart_line_ctrl_set(dut, UART_LINE_CTRL_LOOPBACK, 1);
+		if (ret != 0) {
+			r->err = ret;
+			r->status = SWEEP_FAIL;
+			continue;
+		}
+		r->err = dut_pattern_xfer(dut);
+		r->status = (r->err == 0) ? SWEEP_PASS : SWEEP_FAIL;
+		if (r->status == SWEEP_PASS) {
+			max_pass = r->baud;
+		}
+	}
+	(void)dut_set_baud(dut, 115200);
+	print_sweep_table(rows, ARRAY_SIZE(lpu_sweep_bauds), max_hw, max_pass,
+			  "LPUART MCR loopback. SCLK=HE.");
+
+	printk("======== LPUART TX-only burst (logic analyzer) ========\r\n");
+	printk("Probe LA on P7_1. 0x55 x %u x %u. LOOP off.\r\n",
+	       LPU_LA_BYTES, LPU_LA_REPS);
+	printk("Leave P7_1--P7_0 jumper OFF until the wire section.\r\n");
+	printk("  115200   -> bit ~8.68 us\r\n");
+	printk("  2500000  -> bit 400 ns\r\n");
+	printk("  10000000 -> bit 100 ns\r\n");
+	printk("  15000000 -> bit 67 ns (turbo 240)\r\n");
+	(void)uart_line_ctrl_set(dut, UART_LINE_CTRL_LOOPBACK, 0);
+	uart_irq_rx_disable(dut);
+	uart_irq_tx_disable(dut);
+	for (size_t i = 0; i < ARRAY_SIZE(lpu_la_bauds); i++) {
+		uint32_t dl, dlf, actual;
+		int32_t ppm;
+		unsigned char dump;
+
+		formula_for_baud(sclk, lpu_la_bauds[i], &dl, &dlf, &actual, &ppm);
+		if (dl == 0U) {
+			printk(" SKIP baud: %u (DL=0)\r\n", lpu_la_bauds[i]);
+			continue;
+		}
+		if (dut_set_baud(dut, lpu_la_bauds[i]) != 0) {
+			printk("  uart_configure(%u) failed\r\n", lpu_la_bauds[i]);
+			continue;
+		}
+		dut_rx_drain(dut);
+		printk("  sending %u baud on P7_1 (%u B) ...\r\n",
+		       lpu_la_bauds[i], LPU_LA_BYTES);
+		for (int r = 0; r < LPU_LA_REPS; r++) {
+			for (int b = 0; b < LPU_LA_BYTES; b++) {
+				uart_poll_out(dut, 0x55);
+				/* Jumper on: echo fills RX. Drain so overrun
+				 * cannot stall THRE (that was the TAD9 hang).
+				 */
+				k_busy_wait(50);
+				while (uart_poll_in(dut, &dump) == 0) {
+				}
+			}
+		}
+		printk("  P7_1 %u done\r\n", lpu_la_bauds[i]);
+	}
+	(void)dut_set_baud(dut, 115200);
+	printk("LA bursts done on P7_1. Measure bit width, no UART decode.\r\n");
+	printk("=====================================================\r\n\r\n");
+
+	/* --- wire P7_1 TX_B -> P7_0 RX_B (IRQ + timeout) --- */
+	printk("======== LPUART external loopback (wire, IRQ) ========\r\n");
+	printk("NOW jumper P7_1 (TX) --- P7_0 (RX). Waiting 5 s...\r\n");
+	printk("FAIL(-2) = no RX (jumper off). That is not a hang.\r\n");
+	k_msleep(5000);
+	(void)uart_line_ctrl_set(dut, UART_LINE_CTRL_LOOPBACK, 0);
+	max_pass = 0;
+	memset(rows, 0, sizeof(rows));
+	for (size_t i = 0; i < ARRAY_SIZE(lpu_sweep_bauds); i++) {
+		struct sweep_row *r = &rows[i];
+		int ret;
+		uint8_t ptx[SWEEP_PAYLOAD];
+		uint8_t prx[SWEEP_PAYLOAD];
+
+		fill_sweep_row(r, lpu_sweep_bauds[i], sclk);
+		if (r->status == SWEEP_SKIP) {
+			continue;
+		}
+		ret = dut_set_baud(dut, r->baud);
+		if (ret != 0) {
+			r->err = ret;
+			r->status = SWEEP_FAIL;
+			continue;
+		}
+		for (int j = 0; j < SWEEP_PAYLOAD; j++) {
+			ptx[j] = (uint8_t)(0xA5U ^ (uint8_t)j);
+		}
+		r->err = dut_irq_xfer(dut, ptx, prx, SWEEP_PAYLOAD, r->baud);
+		r->status = (r->err == 0) ? SWEEP_PASS : SWEEP_FAIL;
+		if (r->status == SWEEP_PASS) {
+			max_pass = r->baud;
+		}
+	}
+	(void)dut_set_baud(dut, 115200);
+	print_sweep_table(rows, ARRAY_SIZE(lpu_sweep_bauds), max_hw, max_pass,
+			  "LPUART TX left P7_1 and came back on P7_0.");
+
+	/* --- IRQ throughput --- */
+	for (uint32_t i = 0; i < BENCH_BYTES; i++) {
+		tx[i] = (uint8_t)i;
+	}
+	printk("======== LPUART throughput (P7_1->P7_0, ns16550 IRQ) ========\r\n");
+	printk("SCLK=HE. Fair vs UART0: 115200 and 2.5M. "
+	       "LPUART: 10M both, 15M turbo.\r\n");
+	printk("+----------+----------+--------+------------+----------+--------+----------+\r\n");
+	printk("|     baud |   actual | result |     cycles |       us |   kB/s |   Mbit/s |\r\n");
+	printk("+----------+----------+--------+------------+----------+--------+----------+\r\n");
+	for (size_t i = 0; i < ARRAY_SIZE(lpu_tp_bauds); i++) {
+		uint32_t baud = lpu_tp_bauds[i];
+		uint32_t dl, dlf, actual;
+		int32_t ppm;
+		uint64_t cyc_sum = 0;
+		uint32_t scored = 0;
+		int err = 0;
+
+		formula_for_baud(sclk, baud, &dl, &dlf, &actual, &ppm);
+		if (dl == 0U) {
+			printk("| %8u |        - | SKIP   |          - |        - |      - |        - |\r\n",
+			       baud);
+			continue;
+		}
+		if (dut_set_baud(dut, baud) != 0) {
+			printk("| %8u | %8u | FAIL   |          - |        - |      - |        - |\r\n",
+			       baud, actual);
+			continue;
+		}
+		memset(rx, 0, BENCH_BYTES);
+		err = dut_irq_xfer(dut, tx, rx, BENCH_BYTES, baud);
+		if (err != 0) {
+			printk("| %8u | %8u | FAIL(%d)|          - |        - |      - |        - |\r\n",
+			       baud, actual, err);
+			continue;
+		}
+		for (uint32_t n = 0; n < BENCH_ITERS; n++) {
+			uint32_t t0, t1;
+
+			memset(rx, 0, BENCH_BYTES);
+			t0 = k_cycle_get_32();
+			err = dut_irq_xfer(dut, tx, rx, BENCH_BYTES, baud);
+			t1 = k_cycle_get_32();
+			if (err != 0) {
+				break;
+			}
+			cyc_sum += (uint32_t)(t1 - t0);
+			scored++;
+		}
+		if (err != 0 || scored == 0U) {
+			printk("| %8u | %8u | FAIL(%d)|          - |        - |      - |        - |\r\n",
+			       baud, actual, err);
+			continue;
+		}
+		{
+			uint32_t bytes = BENCH_BYTES * scored;
+			uint32_t us = (hz != 0U) ?
+				(uint32_t)(cyc_sum * 1000000ULL / hz) : 0U;
+			uint32_t wire_us = (actual != 0U) ?
+				(uint32_t)((uint64_t)bytes * 10ULL * 1000000ULL /
+					   actual) : 0U;
+			uint32_t kBps = (us != 0U) ?
+				(uint32_t)(bytes * 1000ULL / us) : 0U;
+			uint32_t kbit = (us != 0U) ?
+				(uint32_t)(bytes * 8000ULL / us) : 0U;
+
+			printk("| %8u | %8u | PASS   | %10u | %8u | %6u | %4u.%u%u |\r\n",
+			       baud, actual, (uint32_t)cyc_sum, us, kBps,
+			       kbit / 1000U, (kbit / 100U) % 10U, (kbit / 10U) % 10U);
+			printk("    scored %u x %u B  wire_us=%u  (8N1, one way)\r\n",
+			       scored, BENCH_BYTES, wire_us);
+		}
+	}
+	(void)dut_set_baud(dut, 115200);
+	printk("+----------+----------+--------+------------+----------+--------+----------+\r\n");
 	printk("================================================\r\n\r\n");
 #endif
 }
