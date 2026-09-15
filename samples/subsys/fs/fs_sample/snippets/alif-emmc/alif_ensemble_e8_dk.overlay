@@ -16,10 +16,12 @@ sdhc: &sdhc {
 	status = "okay";
 	/* eMMC is always present — no card-detect GPIO needed */
 	/delete-property/ cd-gpios;
+	bus-width = <8>;
 
 	mmc {
 		compatible = "zephyr,mmc-disk";
 		disk-name = "SD2";
+		bus-width = <8>;
 		status = "okay";
 	};
 };
