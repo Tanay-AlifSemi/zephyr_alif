@@ -1501,7 +1501,9 @@
 	};
 
 	pinctrl_sdmmc:pinctrl_sdmmc {
-		/* Match Linux DevKit-E8 eMMC: D0-D3/CMD/CLK pad 0x23 (REN+Schmitt+4mA) */
+		/* 4-bit default: D0-D3/CMD/CLK. Linux DevKit-E8 pad 0x23 (REN+Schmitt+4mA).
+		 * D4-D7 (P8_4-P8_7 SD_Dx_C) are added by the alif-emmc-8bit snippet.
+		 */
 		group0 {
 			pinmux = < PIN_P7_0__SD_CMD_A >,
 				 < PIN_P7_1__SD_CLK_A >,
@@ -1512,16 +1514,6 @@
 			read-enable = <0x1>;
 			schmitt-enable = <0x1>;
 			drive-strength = <4>;
-		};
-		/* D4-D7 on P8_4-P8_7 SD_Dx_C (not P5_4-P5_7). Linux pad 0x41 (REN+8mA, no Schmitt) */
-		group1 {
-			pinmux = < PIN_P8_4__SD_D4_C >,
-				 < PIN_P8_5__SD_D5_C >,
-				 < PIN_P8_6__SD_D6_C >,
-				 < PIN_P8_7__SD_D7_C >;
-			read-enable = <0x1>;
-			schmitt-enable = <0x0>;
-			drive-strength = <8>;
 		};
 	};
 

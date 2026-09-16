@@ -92,12 +92,25 @@ Building and Running for Alif eMMC mode
 
 Alif Semiconductor boards support eMMC mode via the ``alif-emmc`` snippet.
 This snippet overrides the SDHC disk node to use the ``zephyr,mmc-disk`` compatible,
-enabling the MMC disk driver and MMC SD subsystem stack.
+enabling the MMC disk driver and MMC SD subsystem stack. The default bus width
+is 4-bit.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/subsys/fs/fs_sample
    :board: alif_e7_dk/ensemble/e7/rtss_hp
    :gen-args: -DSNIPPET=alif-emmc
+   :goals: build
+   :compact:
+
+On DevKit-E8, 8-bit eMMC is opt-in with ``alif-emmc-8bit``. That snippet includes
+the 4-bit ``alif-emmc`` overlay, muxes DAT[7:4] on P8_4–P8_7, and sets
+``bus-width = <8>``. Pass only ``-S alif-emmc-8bit`` (do not also pass
+``-S alif-emmc``).
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/subsys/fs/fs_sample
+   :board: alif_e8_dk/ae822fa0e5597xx0/rtss_hp
+   :gen-args: -DSNIPPET=alif-emmc-8bit
    :goals: build
    :compact:
 

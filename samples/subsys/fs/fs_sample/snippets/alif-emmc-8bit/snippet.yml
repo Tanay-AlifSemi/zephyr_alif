@@ -1,0 +1,16 @@
+#
+# Copyright 2026 Alif Semiconductor.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+name: alif-emmc-8bit
+append:
+  EXTRA_CONF_FILE: ../alif-emmc/alif-emmc.conf
+
+boards:
+  # DevKit-E8: onboard eMMC DAT[7:4] on P8_4-P8_7. Use instead of alif-emmc.
+  /(alif_e8).*/.*/rtss_(hp|he)/:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: alif_ensemble_e8_dk.overlay
+      EXTRA_CONF_FILE: ../alif-emmc/alif_ensemble_e8_dk.conf
