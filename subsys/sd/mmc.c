@@ -14,41 +14,24 @@
 #include "sd_ops.h"
 #include "sd_utils.h"
 
-/* These are used as specific arguments to commands */
-/* For switch commands, the argument structure is:
- * [31:26] : Set to 0
- * [25:24] : Access
- * [23:16] : Index (byte address in EXT_CSD)
- * [15:8]  : Value (data)
- * [7:3]   : Set to 0
- * [2:0]   : Cmd Set
+/* SWITCH: access=write-byte, cmdset=1 (EXT_CSD_CMD_SET_NORMAL).
+ * Linux sends 0x03b70201 for 8-bit; Zephyr previously sent 0x03b70200.
  */
-#define MMC_SWITCH_8_BIT_DDR_BUS_ARG                                                               \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (183U << 16)) +    \
-		(0x0000FF00 & (6U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
-#define MMC_SWITCH_8_BIT_BUS_ARG                                                                   \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (183U << 16)) +    \
-		(0x0000FF00 & (2U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
-#define MMC_SWITCH_4_BIT_BUS_ARG                                                                   \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (183U << 16)) +    \
-		(0x0000FF00 & (1U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
-#define MMC_SWITCH_HS_TIMING_ARG                                                                   \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (185U << 16)) +    \
-		(0x0000FF00 & (1U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
-#define MMC_SWITCH_HS400_TIMING_ARG                                                                \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (185U << 16)) +    \
-		(0x0000FF00 & (3U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
-#define MMC_SWITCH_HS200_TIMING_ARG                                                                \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (185U << 16)) +    \
-		(0x0000FF00 & (2U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
+#define MMC_EXT_CSD_CMD_SET_NORMAL 1U
+#define MMC_SWITCH_WRITE_BYTE(index, value)                                                        \
+	((3U << 24) | ((uint32_t)(index) << 16) | ((uint32_t)(value) << 8) |                       \
+	 MMC_EXT_CSD_CMD_SET_NORMAL)
+
+#define MMC_SWITCH_8_BIT_DDR_BUS_ARG MMC_SWITCH_WRITE_BYTE(183U, 6U)
+#define MMC_SWITCH_8_BIT_BUS_ARG     MMC_SWITCH_WRITE_BYTE(183U, 2U)
+#define MMC_SWITCH_4_BIT_BUS_ARG     MMC_SWITCH_WRITE_BYTE(183U, 1U)
+#define MMC_SWITCH_HS_TIMING_ARG     MMC_SWITCH_WRITE_BYTE(185U, 1U)
+#define MMC_SWITCH_HS400_TIMING_ARG  MMC_SWITCH_WRITE_BYTE(185U, 3U)
+#define MMC_SWITCH_HS200_TIMING_ARG  MMC_SWITCH_WRITE_BYTE(185U, 2U)
 #define MMC_RCA_ARG	(CONFIG_MMC_RCA << 16U)
 #define MMC_REL_ADR_ARG (card->relative_addr << 16U)
-#define MMC_SWITCH_PWR_CLASS_ARG                                                                   \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (187U << 16)) +    \
-		(0x0000FF00 & (0U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
-#define MMC_SWITCH_CACHE_ON_ARG                                                                    \
-	(0xFC000000 & (0U << 26)) + (0x03000000 & (0b11 << 24)) + (0x00FF0000 & (33U << 16)) +     \
-		(0x0000FF00 & (1U << 8)) + (0x000000F7 & (0U << 3)) + (0x00000000 & (3U << 0))
+#define MMC_SWITCH_PWR_CLASS_ARG     MMC_SWITCH_WRITE_BYTE(187U, 0U)
+#define MMC_SWITCH_CACHE_ON_ARG      MMC_SWITCH_WRITE_BYTE(33U, 1U)
 
 LOG_MODULE_DECLARE(sd, CONFIG_SD_LOG_LEVEL);
 
@@ -165,21 +148,31 @@ int mmc_card_init(struct sd_card *card)
 		return ret;
 	}
 
-	/* CMD6: Set bus width to max supported*/
-	ret = mmc_set_bus_width(card);
-	if (ret) {
-		return ret;
-	}
-
-	/* CMD8 */
+	/*
+	 * Match Linux mmc_init_card:
+	 *  1) EXT_CSD while still 1-bit
+	 *  2) HS_TIMING (still 1-bit)
+	 *  3) BUS_WIDTH 8/4
+	 *  4) EXT_CSD again on the wide bus
+	 */
 	ret = mmc_read_ext_csd(card, &card_ext_csd);
 	if (ret) {
 		return ret;
 	}
 
-	/* Set timing to fastest supported */
 	ret = mmc_set_timing(card, &card_ext_csd);
 	if (ret) {
+		return ret;
+	}
+
+	ret = mmc_set_bus_width(card);
+	if (ret) {
+		return ret;
+	}
+
+	ret = mmc_read_ext_csd(card, &card_ext_csd);
+	if (ret) {
+		LOG_ERR("EXT_CSD after bus-width switch failed: %d", ret);
 		return ret;
 	}
 
@@ -389,12 +382,16 @@ static int mmc_set_bus_width(struct sd_card *card)
 	cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
 	ret = sdhc_request(card->sdhc, &cmd, NULL);
 	sdmmc_wait_ready(card);
+	// #region agent log
+	LOG_INF("dbgff42d9 L CMD6 width arg=0x%08x ret=%d r1=0x%08x want_io=%u",
+		cmd.arg, ret, cmd.response[0], card->bus_io.bus_width);
+	// #endregion
 	if (ret) {
 		LOG_ERR("Setting card data bus width failed: %d", ret);
 		return ret;
 	}
 
-	/* Set host controller bus width */
+	/* Host width after card SWITCH + DAT0 busy (do not 1-bit-read now). */
 	ret = sdhc_set_io(card->sdhc, &card->bus_io);
 	if (ret) {
 		LOG_ERR("Setting SDHC data bus width failed: %d", ret);
@@ -421,14 +418,16 @@ static int mmc_set_hs_timing(struct sd_card *card)
 	}
 	sdmmc_wait_ready(card);
 
-	/* Max frequency in HS mode is 52 MHz */
-	card->bus_io.clock = MMC_CLOCK_52MHZ;
+	/* Honor DT max-bus-freq (SD path already does). Default SoC is 50 MHz. */
+	card->bus_io.clock = MIN(card->host_props.f_max, MMC_CLOCK_52MHZ);
 	card->bus_io.timing = SDHC_TIMING_HS;
 	/* Change SDHC bus timing */
 	ret = sdhc_set_io(card->sdhc, &card->bus_io);
 	if (ret) {
 		return ret;
 	}
+	LOG_INF("dbgff42d9 C hs clock=%u Hz sig_v=%u",
+		card->bus_io.clock, (unsigned int)card->bus_io.signal_voltage);
 
 	return ret;
 }
@@ -581,6 +580,13 @@ static int mmc_read_ext_csd(struct sd_card *card, struct mmc_ext_csd *card_ext_c
 	}
 
 	mmc_decode_ext_csd(card_ext_csd, card->card_buffer);
+	// #region agent log
+	LOG_INF("dbgff42d9 C ext_csd bus_width=%u hs_timing=%u hs52=%u hs26=%u host_bw=%u hc_bus_io=%u",
+		card_ext_csd->bus_width, card_ext_csd->hs_timing,
+		card_ext_csd->device_type.MMC_HS_52_DV ? 1 : 0,
+		card_ext_csd->device_type.MMC_HS_26_DV ? 1 : 0,
+		card->bus_width, card->bus_io.bus_width);
+	// #endregion
 	card->block_count = card_ext_csd->sec_count;
 	card->block_size = SDMMC_DEFAULT_BLOCK_SIZE;
 

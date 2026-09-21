@@ -681,6 +681,12 @@ static int card_write(struct sd_card *card, const uint8_t *wbuf, uint32_t start_
 	data.timeout_ms = CONFIG_SD_DATA_TIMEOUT;
 
 	LOG_DBG("WRITE: Sector = %u, Count = %u", start_block, num_blocks);
+	// #region agent log
+	LOG_DBG("dbgff42d9 D card_write CMD%u arg=0x%08x buf=%p blks=%u hicap=%d bw=%u",
+		cmd.opcode, cmd.arg, wbuf, num_blocks,
+		!!(card->flags & SD_HIGH_CAPACITY_FLAG),
+		card->bus_io.bus_width);
+	// #endregion
 
 	ret = sdhc_request(card->sdhc, &cmd, &data);
 	if (ret) {
@@ -732,6 +738,12 @@ int card_write_blocks(struct sd_card *card, const uint8_t *wbuf, uint32_t start_
 	 * directly. Otherwise, we need to use the card's internal buffer
 	 * and memcpy the data back out
 	 */
+	// #region agent log
+	LOG_DBG("dbgff42d9 A/D card_write wbuf=%p start=%u n=%u aligned=%d card_buf=%p",
+		wbuf, start_block, num_blocks,
+		((((uintptr_t)wbuf) & (CONFIG_SDHC_BUFFER_ALIGNMENT - 1)) == 0),
+		card->card_buffer);
+	// #endregion
 	if ((((uintptr_t)wbuf) & (CONFIG_SDHC_BUFFER_ALIGNMENT - 1)) != 0) {
 		/* lower bits of address are set, not aligned. Use internal buffer */
 		LOG_DBG("Unaligned buffer access to SD card may incur performance penalty");

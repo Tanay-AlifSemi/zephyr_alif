@@ -4,6 +4,7 @@
  *
  * Combined 8-bit eMMC snippet for DevKit-E8. Includes the 4-bit alif-emmc
  * overlay, then muxes DAT[7:4] and sets host+card bus-width to 8.
+ * 400 kHz / 3.3 V.
  * Pass -S alif-emmc-8bit only (do not also pass -S alif-emmc).
  */
 
@@ -24,6 +25,8 @@
 
 &sdhc {
 	bus-width = <8>;
+	no-1-8-v;
+	max-bus-freq = <400000>;
 
 	mmc {
 		bus-width = <8>;

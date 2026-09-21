@@ -305,33 +305,9 @@ static int sdhc_dwc_clock_set(struct dwc_sdhc_regs *regs, uint32_t freq_hz)
 	/* clock stabilized, still ensure 1ms delay for clock stability */
 	k_busy_wait(1000);
 
-	/* Enable High Speed mode or UHS timing based on requested frequency */
-	if (freq_hz >= MHZ(50)) {
-		/* Enable High Speed in Host Control 1 */
-		regs->DWC_SDHC_HOST_CTRL1_R |= DWC_SDHC_HOST_CTRL1_HS_EN_Msk;
-
-		/* UHS modes only apply with 1.8V signaling */
-		if (regs->DWC_SDHC_HOST_CTRL2_R & DWC_SDHC_HOST_CTRL2_SIGNALING_EN_Msk) {
-			uint16_t uhs = (freq_hz > MHZ(50))
-				       ? DWC_SDHC_HOST_CTRL2_UHS_MODE_SDR104
-				       : DWC_SDHC_HOST_CTRL2_UHS_MODE_SDR25;
-
-			regs->DWC_SDHC_HOST_CTRL2_R =
-				(regs->DWC_SDHC_HOST_CTRL2_R &
-				 ~DWC_SDHC_HOST_CTRL2_UHS_MODE_Msk) | uhs;
-		}
-	} else {
-		/* Below 50MHz: disable High Speed, clear UHS mode */
-		regs->DWC_SDHC_HOST_CTRL1_R &= ~DWC_SDHC_HOST_CTRL1_HS_EN_Msk;
-		regs->DWC_SDHC_HOST_CTRL2_R &=
-			~DWC_SDHC_HOST_CTRL2_UHS_MODE_Msk;
-	}
-
-	LOG_DBG("Clock set: %uHz CLK_CTRL: 0x%04x HC1: 0x%02x HC2: 0x%04x",
+	LOG_DBG("Clock set: %uHz CLK_CTRL: 0x%04x",
 		div ? (base_clk_hz / (2 * div)) : base_clk_hz,
-		regs->DWC_SDHC_CLK_CTRL_R,
-		regs->DWC_SDHC_HOST_CTRL1_R,
-		regs->DWC_SDHC_HOST_CTRL2_R);
+		regs->DWC_SDHC_CLK_CTRL_R);
 
 	return 0;
 }
@@ -421,6 +397,19 @@ static int sdhc_dwc_wait_xfr_complete(const struct device *dev,
 
 	if (events & ERR_INTR_STATUS_EVENT(DWC_SDHC_ERROR_INTR_ALL_Msk)) {
 		LOG_ERR("XFR complete error event: 0x%08x", events);
+		// #region agent log
+		{
+			const struct sdhc_dwc_config *config = dev->config;
+			struct dwc_sdhc_regs *regs = config->regs;
+
+			LOG_INF("dbgff42d9 D/E xfr-err ev=0x%08x adma_err=0x%02x hc1=0x%02x hc2=0x%04x pstate=0x%08x blksz=%u blkcnt=%u emmc=0x%02x pwr=0x%02x clk=0x%04x",
+				events, regs->DWC_SDHC_ADMA_ERR_STAT_R,
+				regs->DWC_SDHC_HOST_CTRL1_R, regs->DWC_SDHC_HOST_CTRL2_R,
+				regs->DWC_SDHC_PSTATE_REG, regs->DWC_SDHC_BLOCKSIZE_R,
+				regs->DWC_SDHC_BLOCKCOUNT_R, regs->DWC_SDHC_EMMC_CTRL_R,
+				regs->DWC_SDHC_PWR_CTRL_R, regs->DWC_SDHC_CLK_CTRL_R);
+		}
+		// #endregion
 		ret = -EIO;
 	} else {
 		LOG_ERR("XFR complete timeout");
@@ -593,6 +582,18 @@ static int sdhc_dwc_dma_init(struct dwc_sdhc_regs *regs, struct sdhc_dwc_data *d
 		sys_cache_data_flush_range(sdhc_data->data, total_len);
 	}
 
+	// #region agent log
+	if (!read) {
+		const uint8_t *p = sdhc_data->data;
+		mem_addr_t dma = SDHC_DMA_ADDR((const volatile void *)sdhc_data->data);
+
+		LOG_DBG("dbgff42d9 A/B/D wr-dma buf=%p dma=0x%lx len=%u blks=%u bsz=%u cache=%d b0=%02x align=%lu",
+			sdhc_data->data, (unsigned long)dma, total_len, sdhc_data->blocks,
+			sdhc_data->block_size, IS_ENABLED(CONFIG_CACHE_MANAGEMENT),
+			p ? p[0] : 0, (unsigned long)((uintptr_t)sdhc_data->data & 31u));
+	}
+	// #endregion
+
 #if defined(CONFIG_SDHC_DWC_ADMA)
 	uint32_t remaining = total_len;
 	uint32_t offset = 0;
@@ -630,6 +631,14 @@ static int sdhc_dwc_dma_init(struct dwc_sdhc_regs *regs, struct sdhc_dwc_data *d
 	}
 
 	data->adma_desc[desc_num - 1] |= DWC_SDHC_ADMA2_DESC_END;
+
+	// #region agent log
+	if (!read) {
+		LOG_DBG("dbgff42d9 D adma n=%u desc0=0x%llx sa=0x%08x", desc_num,
+			(unsigned long long)data->adma_desc[0],
+			(uint32_t)SDHC_DMA_ADDR((const volatile void *)&data->adma_desc[0]));
+	}
+	// #endregion
 
 	if (IS_ENABLED(CONFIG_CACHE_MANAGEMENT)) {
 		sys_cache_data_flush_range(data->adma_desc, desc_num * sizeof(adma2_desc_t));
@@ -774,6 +783,61 @@ static int sdhc_dwc_request(const struct device *dev, struct sdhc_command *cmd,
 	return ret;
 }
 
+/*
+ * HISPD / UHS follow the requested timing mode, not clock frequency.
+ * MMC HS at 25 MHz still needs HOST_CTRL1.HISPD (Linux does the same);
+ * gating HISPD on freq >= 50 MHz left the card in HS and the host in
+ * default output delay, which CRC-fails 8-bit writes.
+ */
+static void sdhc_dwc_apply_timing(struct dwc_sdhc_regs *regs,
+				  enum sdhc_timing_mode timing)
+{
+	uint8_t hc1 = regs->DWC_SDHC_HOST_CTRL1_R;
+	uint16_t hc2 = regs->DWC_SDHC_HOST_CTRL2_R;
+	uint16_t uhs = 0;
+	bool hispd = false;
+
+	switch (timing) {
+	case SDHC_TIMING_HS:
+	case SDHC_TIMING_SDR25:
+		hispd = true;
+		uhs = DWC_SDHC_HOST_CTRL2_UHS_MODE_SDR25;
+		break;
+	case SDHC_TIMING_SDR50:
+		hispd = true;
+		uhs = DWC_SDHC_HOST_CTRL2_UHS_MODE_SDR50;
+		break;
+	case SDHC_TIMING_SDR104:
+	case SDHC_TIMING_HS200:
+	case SDHC_TIMING_HS400:
+		hispd = true;
+		uhs = DWC_SDHC_HOST_CTRL2_UHS_MODE_SDR104;
+		break;
+	case SDHC_TIMING_DDR50:
+	case SDHC_TIMING_DDR52:
+		hispd = true;
+		uhs = DWC_SDHC_HOST_CTRL2_UHS_MODE_DDR50;
+		break;
+	default:
+		break;
+	}
+
+	if (hispd) {
+		hc1 |= DWC_SDHC_HOST_CTRL1_HS_EN_Msk;
+	} else {
+		hc1 &= ~DWC_SDHC_HOST_CTRL1_HS_EN_Msk;
+	}
+	regs->DWC_SDHC_HOST_CTRL1_R = hc1;
+
+	hc2 &= ~DWC_SDHC_HOST_CTRL2_UHS_MODE_Msk;
+	if (hispd && (hc2 & DWC_SDHC_HOST_CTRL2_SIGNALING_EN_Msk)) {
+		hc2 |= uhs;
+	}
+	regs->DWC_SDHC_HOST_CTRL2_R = hc2;
+
+	LOG_DBG("timing %u HC1: 0x%02x HC2: 0x%04x", timing, hc1, hc2);
+}
+
 static int sdhc_dwc_set_io(const struct device *dev, struct sdhc_io *ios)
 {
 	const struct sdhc_dwc_config *config = dev->config;
@@ -801,6 +865,10 @@ static int sdhc_dwc_set_io(const struct device *dev, struct sdhc_io *ios)
 		}
 
 		regs->DWC_SDHC_HOST_CTRL1_R = hc1;
+		// #region agent log
+		LOG_INF("dbgff42d9 L set_io width=%u HC1=0x%02x PSTATE=0x%08x",
+			ios->bus_width, hc1, regs->DWC_SDHC_PSTATE_REG);
+		// #endregion
 	}
 
 	if (ios->power_mode != data->ios.power_mode) {
@@ -866,6 +934,8 @@ static int sdhc_dwc_set_io(const struct device *dev, struct sdhc_io *ios)
 			return ret;
 		}
 	}
+
+	sdhc_dwc_apply_timing(regs, ios->timing);
 
 	data->ios = *ios;
 	return 0;
