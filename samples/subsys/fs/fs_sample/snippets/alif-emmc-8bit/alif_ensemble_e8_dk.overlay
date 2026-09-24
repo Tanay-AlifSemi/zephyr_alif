@@ -4,14 +4,14 @@
  *
  * Combined 8-bit eMMC snippet for DevKit-E8. Includes the 4-bit alif-emmc
  * overlay, then muxes DAT[7:4] and sets host+card bus-width to 8.
- * 400 kHz / 3.3 V.
+ * 25 MHz / 3.3 V. pad 0x29.
  * Pass -S alif-emmc-8bit only (do not also pass -S alif-emmc).
  */
 
 #include "../alif-emmc/alif_ensemble_e8_dk.overlay"
 
 &pinctrl_sdmmc {
-	/* D4-D7 on P8_4-P8_7 SD_Dx_C (not P5_4-P5_7). Linux pad 0x41 (REN+8mA, no Schmitt) */
+	/* D4-D7: pull-up, 4 mA, slow slew, no Schmitt (pad 0x29). */
 	group1 {
 		pinmux = < PIN_P8_4__SD_D4_C >,
 			 < PIN_P8_5__SD_D5_C >,
@@ -19,14 +19,16 @@
 			 < PIN_P8_7__SD_D7_C >;
 		read-enable = <0x1>;
 		schmitt-enable = <0x0>;
-		drive-strength = <8>;
+		slew-rate = <0>;
+		driver-state-control = <1>;
+		drive-strength = <4>;
 	};
 };
 
 &sdhc {
 	bus-width = <8>;
 	no-1-8-v;
-	max-bus-freq = <400000>;
+	max-bus-freq = <25000000>;
 
 	mmc {
 		bus-width = <8>;
